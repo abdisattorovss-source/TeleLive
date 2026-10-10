@@ -1,11 +1,12 @@
 {
   "app_name": "TeleLive",
   "package": "uz.ferlo.telelive",
-  "version_name": "1.0.0",
-  "version_code": 1,
+  "version_name": "1.0.1",
+  "version_code": 2,
   "max_accounts": 16,
-  "icon_background": "#111111",
-  "icon_foreground": "#FFFFFF",
+  "icon_gradient_center": "#5A0A96",
+  "icon_gradient_edge": "#1E053C",
+  "intro_sphere_color": "#3A0868",
   "telegram_repo": "https://github.com/DrKLO/Telegram.git",
   "telegram_commit": "f2908b14133bbffbf7ab04f641ecb5bfaf533242",
   "telegram_version": "12.10.6"
