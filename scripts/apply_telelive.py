@@ -192,6 +192,15 @@ def main():
              "LocaleController.getString(R.string.TeleLiveNotice),",
              label="Kirish sahifasida norasmiy ilova haqida yozuv")
 
+    # Ism tahrirlash ekraniga TeleLive ism vositalari (fancy shrift, yangi alifbo, emoji)
+    cn = os.path.join(java, "ui", "ChangeNameActivity.java")
+    sub_once(cn,
+             r"(if \(user != null\) \{\s*firstNameField\.setText\(user\.first_name\);\s*"
+             r"firstNameField\.setSelection\(firstNameField\.length\(\)\);\s*"
+             r"lastNameField\.setText\(user\.last_name\);\s*\}\n)",
+             r"\1\n        org.telegram.messenger.TeleLiveNameTools.addToolsRow(context, linearLayout, firstNameField);\n",
+             label="Ism tahrirlash ekraniga TeleLive uslub tugmalari")
+
     al = os.path.join(java, "messenger", "ApplicationLoader.java")
     sub_once(al, r"(public void onCreate\(\) \{[\s\S]*?super\.onCreate\(\);\n)",
              r"\1        if (TeleLive.onApplicationCreate(this)) {\n            return;\n        }\n",
