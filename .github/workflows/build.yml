@@ -1,0 +1,107 @@
+name: TeleLive yig'ish
+
+on:
+  workflow_dispatch:
+    inputs:
+      output:
+        description: "Natija: apk (telefonda sinash) yoki aab (Play Market uchun)"
+        type: choice
+        options: [apk, aab]
+        default: apk
+      abi:
+        description: "Arxitektura: arm64 (tez, sinov uchun) yoki all (hamma telefonlar)"
+        type: choice
+        options: [arm64, all]
+        default: arm64
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: TeleLive kodini olish
+        uses: actions/checkout@v4
+
+      - name: Diskda joy bo'shatish
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/node_modules /opt/ghc /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Sozlamalarni o'qish
+        id: cfg
+        run: |
+          echo "commit=$(jq -r .telegram_commit telelive.json)" >> "$GITHUB_OUTPUT"
+          echo "repo=$(jq -r .telegram_repo telelive.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version_name telelive.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Telegram for Android kodini yuklab olish
+        run: |
+          git init tg
+          cd tg
+          git remote add origin "${{ steps.cfg.outputs.repo }}"
+          git fetch --depth 1 origin "${{ steps.cfg.outputs.commit }}"
+          git checkout --quiet FETCH_HEAD
+          git submodule update --init --recursive --depth 1 --jobs 8 || git submodule update --init --recursive --jobs 8
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK, NDK va CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+
+      - name: TeleLive o'zgarishlarini qo'llash
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          python3 -m pip install --quiet pillow
+          if [ "${{ inputs.output }}" = "aab" ]; then ABI=all; else ABI="${{ inputs.abi }}"; fi
+          python3 scripts/apply_telelive.py --tg tg --abi "$ABI"
+
+      - name: Gradle keshi
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ steps.cfg.outputs.commit }}
+
+      - name: Yig'ish (30-120 daqiqa davom etishi mumkin)
+        working-directory: tg
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+        run: |
+          chmod +x gradlew
+          if [ "${{ inputs.output }}" = "aab" ]; then
+            ./gradlew --no-daemon :TMessagesProj_App:bundleBundleAfatRelease --stacktrace
+          else
+            ./gradlew --no-daemon :TMessagesProj_App:assembleAfatRelease --stacktrace
+          fi
+
+      - name: Natijani yig'ish
+        run: |
+          mkdir -p out
+          V="${{ steps.cfg.outputs.version }}"
+          if [ "${{ inputs.output }}" = "aab" ]; then
+            find tg/TMessagesProj_App/build/outputs/bundle -name "*.aab" -exec cp {} "out/TeleLive-$V.aab" \;
+          else
+            find tg/TMessagesProj_App/build/outputs/apk -name "*.apk" -exec cp {} "out/TeleLive-$V-${{ inputs.abi }}.apk" \;
+          fi
+          ls -la out
+
+      - name: Yuklab olish uchun saqlash
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeleLive-${{ steps.cfg.outputs.version }}-${{ inputs.output }}
+          path: out/*
+          if-no-files-found: error
