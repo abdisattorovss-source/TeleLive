@@ -1,9 +1,9 @@
 {
   "app_name": "TeleLive",
   "package": "uz.ferlo.telelive",
-  "version_name": "1.0.1",
-  "version_code": 2,
-  "max_accounts": 16,
+  "version_name": "1.0.2",
+  "version_code": 3,
+  "max_accounts": 30,
   "icon_gradient_center": "#5A0A96",
   "icon_gradient_edge": "#1E053C",
   "intro_sphere_color": "#3A0868",
