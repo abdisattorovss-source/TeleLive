@@ -1,0 +1,6 @@
+out/
+tg/
+__pycache__/
+*.keystore
+*.jks
+google-services.json
