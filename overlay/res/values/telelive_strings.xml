@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="TeleLiveNotice">TeleLive is an unofficial app built on the Telegram API. It is part of the Telegram ecosystem but is not made by Telegram.</string>
+</resources>
