@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="TeleLiveNotice">TeleLive — неофициальное приложение на основе Telegram API. Оно является частью экосистемы Telegram, но не выпускается компанией Telegram.</string>
+</resources>
