@@ -133,6 +133,28 @@ def main():
     sub_once(defines, r"#define MAX_ACCOUNT_COUNT \d+", "#define MAX_ACCOUNT_COUNT %d" % (n + 1),
              label="native MAX_ACCOUNT_COUNT = %d" % (n + 1))
 
+    # Telegram'ning C++ qismida faqat 5 ta ulanish obyekti qo'lda yozilgan (switch 0..4).
+    # Akkauntlar ko'paytirilganda 4..N hammasi bitta obyektga tushib, ilova ishga tushishda
+    # yiqilardi. Shu sababli ularni MAX_ACCOUNT_COUNT o'lchamli massivga almashtiramiz.
+    cm = os.path.join(proj, "jni", "tgnet", "ConnectionsManager.cpp")
+    sub_once(cm,
+             r"ConnectionsManager& ConnectionsManager::getInstance\(int32_t instanceNum\) \{\s*"
+             r"switch \(instanceNum\) \{[\s\S]*?return instance4;\s*\}\s*\}",
+             "ConnectionsManager& ConnectionsManager::getInstance(int32_t instanceNum) {\n"
+             "    static ConnectionsManager *instances[MAX_ACCOUNT_COUNT] = {nullptr};\n"
+             "    static std::recursive_mutex instancesMutex;\n"
+             "    if (instanceNum < 0 || instanceNum >= MAX_ACCOUNT_COUNT) {\n"
+             "        instanceNum = MAX_ACCOUNT_COUNT - 1;\n"
+             "    }\n"
+             "    std::lock_guard<std::recursive_mutex> lock(instancesMutex);\n"
+             "    if (instances[instanceNum] == nullptr) {\n"
+             "        instances[instanceNum] = new ConnectionsManager(instanceNum);\n"
+             "    }\n"
+             "    return *instances[instanceNum];\n"
+             "}",
+             label="native ulanishlar har bir akkaunt uchun alohida")
+    sub_once(cm, r"#include <memory>\n", "#include <memory>\n#include <mutex>\n", label="#include <mutex>")
+
     print("5. Ilova nomi")
     for d in sorted(os.listdir(res)):
         f = os.path.join(res, d, "strings.xml")
@@ -144,13 +166,15 @@ def main():
 
     print("6. TeleLive fayllari (overlay)")
     overlay = os.path.join(ROOT, "overlay")
-    shutil.copy(os.path.join(overlay, "java", "org", "telegram", "messenger", "TeleLive.java"),
-                os.path.join(java, "messenger", "TeleLive.java"))
+    src_java = os.path.join(overlay, "java", "org", "telegram", "messenger")
+    for f in sorted(os.listdir(src_java)):
+        if f.endswith(".java"):
+            shutil.copy(os.path.join(src_java, f), os.path.join(java, "messenger", f))
     for d in os.listdir(os.path.join(overlay, "res")):
         os.makedirs(os.path.join(res, d), exist_ok=True)
         shutil.copy(os.path.join(overlay, "res", d, "telelive_strings.xml"),
                     os.path.join(res, d, "telelive_strings.xml"))
-    print("  ✓ TeleLive.java va uz/ru/en matnlar")
+    print("  ✓ TeleLive Java fayllari va uz/ru/en matnlar")
 
     lc = os.path.join(java, "messenger", "LocaleController.java")
     sub_once(lc,
@@ -167,6 +191,22 @@ def main():
              "LocaleController.getString(R.string.Page1Message) + \"\\\\n\\\\n\" + "
              "LocaleController.getString(R.string.TeleLiveNotice),",
              label="Kirish sahifasida norasmiy ilova haqida yozuv")
+
+    al = os.path.join(java, "messenger", "ApplicationLoader.java")
+    sub_once(al, r"(public void onCreate\(\) \{[\s\S]*?super\.onCreate\(\);\n)",
+             r"\1        if (TeleLive.onApplicationCreate(this)) {\n            return;\n        }\n",
+             label="Xato oynasi (crash handler) ulandi")
+    manifest = os.path.join(proj, "src", "main", "AndroidManifest.xml")
+    sub_once(manifest, r"(\n\s*</application>)",
+             "\n        <activity\n"
+             "            android:name=\"org.telegram.messenger.TeleLiveCrashActivity\"\n"
+             "            android:exported=\"false\"\n"
+             "            android:process=\":telelive_crash\"\n"
+             "            android:theme=\"@android:style/Theme.Material.NoActionBar\" />\\1",
+             label="Xato oynasi AndroidManifest'ga qo'shildi")
+    sub_once(intro, r"paint\.setColor\(ThemeColors\.TELEGRAM_COLOR\);",
+             "paint.setColor(0xFF%s);" % cfg["intro_sphere_color"].lstrip("#").upper(),
+             label="Kirish animatsiyasi doirasi TeleLive rangida")
 
     print("7. Tillar va arxitektura")
     ab = os.path.join(app, "build.gradle")
@@ -197,7 +237,7 @@ def main():
                 "client_info": {"mobilesdk_app_id": "1:000000000000:android:0000000000000000",
                                 "android_client_info": {"package_name": cfg["package"]}},
                 "oauth_client": [],
-                "api_key": [{"current_key": "AIzaSyA-NO-FIREBASE-00000000000000000"}],
+                "api_key": [{"current_key": "AIzaSyA0000000000000000000000000000000"}],
                 "services": {"appinvite_service": {"other_platform_oauth_client": []}},
             }],
             "configuration_version": "1",
@@ -222,13 +262,8 @@ def main():
 
 
 def replace_icons(res, cfg):
-    bg, fg = cfg["icon_background"], cfg["icon_foreground"]
-    draw = os.path.join(res, "drawable")
-    write(os.path.join(draw, "telelive_icon_bg.xml"), icons.color_drawable(bg))
-    write(os.path.join(draw, "telelive_icon_fg.xml"), icons.vector_drawable(fg))
-    write(os.path.join(draw, "telelive_icon_mono.xml"), icons.vector_drawable("#FFFFFF"))
-    # Telegram samolyotchasi ilovaning boshqa joylarida ham monoxrom belgi sifatida ishlatiladi
-    write(os.path.join(draw, "icon_plane.xml"), icons.vector_drawable("#FFFFFF"))
+    write(os.path.join(res, "drawable", "telelive_icon_bg.xml"),
+          icons.gradient_drawable(cfg["icon_gradient_center"], cfg["icon_gradient_edge"]))
 
     count = 0
     anydpi = os.path.join(res, "mipmap-anydpi-v26")
@@ -237,34 +272,52 @@ def replace_icons(res, cfg):
             write(os.path.join(anydpi, f), icons.adaptive_icon_xml())
             count += 1
 
+    densities = {"mdpi": 1.0, "hdpi": 1.5, "xhdpi": 2.0, "xxhdpi": 3.0, "xxxhdpi": 4.0}
+    for d, k in densities.items():
+        folder = os.path.join(res, "mipmap-" + d)
+        os.makedirs(folder, exist_ok=True)
+        size = int(round(108 * k))
+        icons.adaptive_foreground(size).save(os.path.join(folder, "telelive_icon_fg.png"))
+        icons.adaptive_monochrome(size).save(os.path.join(folder, "telelive_icon_mono.png"))
+        count += 2
+
+    # Telegram samolyotchasi boshqa joylarda monoxrom vektor sifatida ham ishlatiladi
+    write(os.path.join(res, "drawable", "icon_plane.xml"), """<?xml version="1.0" encoding="utf-8"?>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@mipmap/telelive_icon_mono" />
+""")
+
     for d in sorted(os.listdir(res)):
         if not (d.startswith("mipmap") or d.startswith("drawable")):
             continue
         for f in sorted(os.listdir(os.path.join(res, d))):
             base, ext = os.path.splitext(f)
-            if ext not in (".png", ".webp"):
+            if ext not in (".png", ".webp") or base.startswith("telelive_"):
                 continue
             path = os.path.join(res, d, f)
             if base == "notification":
-                img = None
+                kind = "notification"
+            elif base == "intro_tg_plane":
+                kind = "intro"
             elif "launcher" in base:
-                img = "launcher"
+                kind = "launcher"
             elif "foreground" in base:
-                img = "foreground"
+                kind = "foreground"
             elif "background_clip" in base or base.endswith("background_sa"):
-                img = "background"
+                kind = "background"
             else:
                 continue
             with Image.open(path) as im:
-                size = im.size[0]
-            if base == "notification":
-                out = icons.mark_only(size, "#FFFFFF", 0.92)
-            elif img == "launcher":
-                out = icons.full_icon(size, bg, fg, round_shape="round" in base)
-            elif img == "foreground":
-                out = icons.mark_only(size, fg, 0.50)
+                w, h = im.size
+            if kind == "notification":
+                out = icons.notification_icon(w)
+            elif kind == "intro":
+                out = icons.intro_plane(w, h)
+            elif kind == "launcher":
+                out = icons.full_icon(w, cfg, round_shape="round" in base)
+            elif kind == "foreground":
+                out = icons.adaptive_foreground(w)
             else:
-                out = icons.solid(size, bg)
+                out = icons.gradient(w, cfg["icon_gradient_center"], cfg["icon_gradient_edge"])
             if ext == ".webp":
                 out.save(path, "WEBP", lossless=True)
             else:
